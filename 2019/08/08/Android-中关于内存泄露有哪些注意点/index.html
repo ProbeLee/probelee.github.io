@@ -1,0 +1,107 @@
+<html>
+  <head>
+    <title>Android 中关于内存泄露有哪些注意点? - Lee</title>
+    <link href='/images/fav.png' rel='shortcut icon'>
+<link href='/atom.xml' rel='alternate' type='application/rss+xml'>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/highlight.css">
+<link rel="stylesheet" href="/css/responsive.css">
+<script src="/js/jquery.js"></script>
+<script src="/js/basics.js"></script>
+<meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
+<meta content='text/html; charset=utf-8' http-equiv='content-type'>
+
+
+  </head>
+  <body>
+    <header>
+  <a id='go-back-home' href='/'><img src='/images/scribble.png' alt='Home' width='53' height='59'></a>
+  <p>Lee</p>
+  <p>不努力就会倒退</p>
+</header>
+
+    <div id='container'>
+      <div class='block'>
+  
+    <a class='main' href='/'>Bolg</a>
+  
+    <a class='main' href='/about'>About</a>
+  
+    <a class='main' href='mailto:saintwinkle@gmail.com'>Email</a>
+  
+    <a class='main' href='https://github.com/ZF-probe'>Github</a>
+  
+</div>
+
+      <section class='paging'>
+  
+  
+    <div class='right'>
+      <a href='/2019/08/04/自定义 Handler 时如何有效地避免内存泄漏问题？/'>
+        ›
+      </a>
+    </div>
+  
+</section>
+
+      <div class='content'>
+        <section class='post'>
+          <h1>
+            <div class='date'>2019-08-08</div>
+            Android 中关于内存泄露有哪些注意点?
+          </h1>
+          <h3 id="问：什么是内存泄漏？"><a href="#问：什么是内存泄漏？" class="headerlink" title="问：什么是内存泄漏？"></a>问：什么是内存泄漏？</h3><h5 id="https-blog-csdn-net-cao-dayong-article-details-64447191-参考"><a href="#https-blog-csdn-net-cao-dayong-article-details-64447191-参考" class="headerlink" title="https://blog.csdn.net/cao_dayong/article/details/64447191  参考"></a><a href="https://blog.csdn.net/cao_dayong/article/details/64447191" target="_blank" rel="noopener">https://blog.csdn.net/cao_dayong/article/details/64447191</a>  参考</h5><h5 id="内存泄漏的根本原因是一个长生命周期（单例）对象持有一个短生命周期对象-activity-的引用-不再使用的短生命周期对象-，造成短生命周期对象没有办法被回收所导致的。只需解决短生命周期的实例引用问题即可。"><a href="#内存泄漏的根本原因是一个长生命周期（单例）对象持有一个短生命周期对象-activity-的引用-不再使用的短生命周期对象-，造成短生命周期对象没有办法被回收所导致的。只需解决短生命周期的实例引用问题即可。" class="headerlink" title="内存泄漏的根本原因是一个长生命周期（单例）对象持有一个短生命周期对象(activity)的引用(不再使用的短生命周期对象)，造成短生命周期对象没有办法被回收所导致的。只需解决短生命周期的实例引用问题即可。"></a>内存泄漏的根本原因是一个长生命周期（单例）对象持有一个短生命周期对象(activity)的引用(不再使用的短生命周期对象)，造成短生命周期对象没有办法被回收所导致的。只需解决短生命周期的实例引用问题即可。</h5><pre><code>举个例子：
+  如果一个 Activity 被一个单例对象所引用，那么当退出这个 Activity 时，由于单例的对象依然存在（单例对象的生命周期跟整个 App 的生命周期一致），
+  而单例对象又持有 Activity 的引用，这就导致了此 Activity 无法被回收，从而造成内存泄漏。
+
+1、内部类形式使用handler同时发了延迟消息，这时候退出activity会造成activity内存泄漏。AsyncTask同理会造成内存泄漏。
+
+2、单例类持有activity会造成activity内存泄漏。
+
+3、Cursor， Input、OutputStream之类的用完后一定要及时关闭，操作这些对象，close方法尽量放在finally块(finally块的作用就是为了保证无论出现什么情况，finally块里的代码一定会被执行。)，防止出异常后不能执行。
+
+4、webview布局引用会造成内存泄露。    
+    1）可以采用动态添加webview，    
+    2）也可以在activity的onDestroyed中先remove所有回调并，清空javascripInterface，通过父布局移除webview。
+
+5、static关键字修饰的成员变量，比如单例(静态变量被创建之后，是被所有的该类对象公用的，静态变量的生命周期是跟随类的生命周期的，同时，
+    被该类(单例-长生命周期)持有的短生命周期实例(activity)不能被回收，如果短生命周期的实例中有Bitmap或者其他占用内存较多的对象，
+    由于被持有的activity没有被回收，导致这些大的对象也不能被回收，从而导致被占用的内存一直不能被回收，从而导致了内存泄漏。也就
+    是只有该类(静态的类)被jvm从内存中干掉后，这个对应的实例的生命周期也就结束了，占用的内存也就被回收了。)
+
+6、Activity 的 Context 造成的泄漏，可以使用 ApplicationContext
+
+7、在 MVP 的架构中，通常 Presenter 要同时持有 View 和 Model 的引用，如果在 Activity 退出的时候，Presenter 正在进行一个耗时操作，
+  那么 Presenter 的生命周期会比 Activity 长，导致 Activity 无法回收，造成内存泄漏.
+ （解决方法也很简单，在 onDestory 方法中把 presenter 中的 view 对象置为空就可以了 view=null）
+</code></pre>
+          <br>
+<p>Scribble</p>
+<p><img src='/images/scribble3.png' alt='scribble'></p>
+
+        </section>
+      </div>
+      
+      <div class='block'>
+  
+    <a class='main' href='/'>Bolg</a>
+  
+    <a class='main' href='/about'>About</a>
+  
+    <a class='main' href='mailto:saintwinkle@gmail.com'>Email</a>
+  
+    <a class='main' href='https://github.com/ZF-probe'>Github</a>
+  
+</div>
+
+    </div>
+    <footer>
+  <span class='muted'>&copy; John Doe. All Rights Reserved.</span><br>
+  <a href='https://github.com/saintwinkle/hexo-theme-scribble' class='muted'>built with Hexo using Scribble theme</a>
+  <br>
+  <br>
+  <img src='/images/scribble2.png' alt='scribble' />
+</footer>
+
+  </body>
+</html>
