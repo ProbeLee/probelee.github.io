@@ -1,0 +1,360 @@
+<html>
+  <head>
+    <title>activity启动流程 - Lee</title>
+    <link href='/images/fav.png' rel='shortcut icon'>
+<link href='/atom.xml' rel='alternate' type='application/rss+xml'>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/highlight.css">
+<link rel="stylesheet" href="/css/responsive.css">
+<script src="/js/jquery.js"></script>
+<script src="/js/basics.js"></script>
+<meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
+<meta content='text/html; charset=utf-8' http-equiv='content-type'>
+
+
+  </head>
+  <body>
+    <header>
+  <a id='go-back-home' href='/'><img src='/images/scribble.png' alt='Home' width='53' height='59'></a>
+  <p>Lee</p>
+  <p>不努力就会倒退</p>
+</header>
+
+    <div id='container'>
+      <div class='block'>
+  
+    <a class='main' href='/'>Bolg</a>
+  
+    <a class='main' href='/about'>About</a>
+  
+    <a class='main' href='mailto:saintwinkle@gmail.com'>Email</a>
+  
+    <a class='main' href='https://github.com/ZF-probe'>Github</a>
+  
+</div>
+
+      <section class='paging'>
+  
+  
+    <div class='right'>
+      <a href='/2019/08/08/Android-中关于内存泄露有哪些注意点/'>
+        ›
+      </a>
+    </div>
+  
+</section>
+
+      <div class='content'>
+        <section class='post'>
+          <h1>
+            <div class='date'>2020-03-22</div>
+            activity启动流程
+          </h1>
+          <h4 id="Activity启动流程：根据启动Activity时机的不同，可分为根Activity的启动流程和普通Activity启动流程。"><a href="#Activity启动流程：根据启动Activity时机的不同，可分为根Activity的启动流程和普通Activity启动流程。" class="headerlink" title="Activity启动流程：根据启动Activity时机的不同，可分为根Activity的启动流程和普通Activity启动流程。"></a>Activity启动流程：根据启动Activity时机的不同，可分为根Activity的启动流程和普通Activity启动流程。</h4><pre><code>根Activity:应用程序启动流程，即在桌面上点击一个应用图标到进入到应用第一个 Activity 的流程。
+
+普通Activity：在一个应用里开启另外一个Activity的流程。
+
+这个 Instrumentation 是什么？为什么要交给她弄呢？其实 Instrumentation 这个类很重要，重要体现在对 Activity 生命周期的调用根本离不开她。每个
+Activity 都持有 Instrumentation 对象的一个引用，但是整个进程只会存在一个 Instrumentation 对象。
+</code></pre><h5 id="1、Launcher进程请求AMS"><a href="#1、Launcher进程请求AMS" class="headerlink" title="1、Launcher进程请求AMS"></a>1、Launcher进程请求AMS</h5><pre><code>根 Activity 的启动流程其实就是桌面上点击一个应用图标进入到应用的第一个 Activity 的流程，其实桌面也可以看成一个程序，即 Launcher。
+
+当系统开机后，Launcher 也随之被启动，然后将已经安装的应用程序图标显示到桌面上，所以当我们点击一个应用图标其实就是相当于点击活动中的一个 button,
+其相应事件就是 Launcher 进程请求AMS来启动该应用程序。(可以将手机看成一个应用，桌面上的图标就是应用中的按钮。点击按钮则进行按钮负责内容的下一步
+操作)
+
+Launcher会调用自身的 startActivitySafely() 方法中会添加一个NEW_TASK的Falg 然后调用熟悉的 startActivity()，Launcher并没有这个方法,应该
+就是父类的方法。Launcher 的父类最终是 Activity ，其实 Launcher 调用的 startActivity 其实就是 Activity 中的 startActivity。从这里也可以
+证明 Launcher 其实也是个 Activity。和我们平时在 startActivity 基本是一样的。(原来 Launcher 就是activity，所以拥有 Activity 的调用方法)
+
+startActivity()源码：
+    进入 startActivity() 最终实现是 startActivityForResult()。根Activity 还没有创建的时候 mParent=null ，这里出现了一个非常重要的对象 
+    Instrumentation  (对Activity生命周期的调用根本离不开她。每个 Activity 都持有 Instrumentation 对象的一个引用，但是整个进程只会存在一个 
+    Instrumentation 对象。)
+
+    直接调用了 Instrumentation 中 execStartActivity()，在这个方法中获取到了 AMS 的代理对象(ActivityManager的getService方法来得到AMS的
+    代理对象)。然后调用这个代理对象的 startActivity() 方法。(ActivityManagerService 是属于系统级服务的)
+
+    生成的代理对象 b 是处于 AMS 作为服务端的 SystemServe r进程中，与 Launche r作为客户端与服务端不在同一个进程内，所以返回的是代理对象。
+    如何能把工作交给 AMS 进行实现具体功能？
+
+    需要通过 asInterface 进行绑定。getService()中 得到一个 Ibinder 类型的 AMS 引用 b 。把这个 IBinder 类型的 AMS 引用转换为 
+    IActivityManager 代理对象的前提，只需要在 AMS 继承 IActivityManager.Stub 类并实现了相应的方法，Launcher 进程作为客户端就拥有了拥有
+    服务端 AMS 代理对象。(服务端注册服务,客户端获取服务，最后客户端使用服务端服务)
+</code></pre><h5 id="2、AMS发送创建应用进程请求-向-ServerManager-发送创建请求"><a href="#2、AMS发送创建应用进程请求-向-ServerManager-发送创建请求" class="headerlink" title="2、AMS发送创建应用进程请求(向 ServerManager 发送创建请求)"></a>2、AMS发送创建应用进程请求(向 ServerManager 发送创建请求)</h5><pre><code>目前任务已经从Launcher中给到了 AMS。
+
+    面讲过了两个不同进程如何进行 IPC。通过Binder进行进程间通信。服务端注册 ServerManager，客户端获取 ServerManager。最后通过服务端注册后，
+    客户端获取代理进行调用代理中的方法。也就是 Launcher 调用了代理 AMS 中的 startActivity()。
+
+    AMS 中的 startActivity()方法最终实现是 startActivityAsUser()。这个方法中是一个链式调用，创建了很多需要的对象。这个链式最终返回一个
+    ActivityStarter 对象，这个管理对象中经过 execute()会执行多个 startActivity()，最终会执行到 startActivityUnchecked()。(也就是也就是
+    ActivityStarter 的 execute()方法最终会执行到 startActivityUnchecked()方法中 )
+
+    这个方法会根据启动标志位和 Activity 启动模式来决定如何启动一个 Activity 以及是否要调用 deliverNewIntent 方法通知 Activity 有一个 
+    Intent 试图重新启动它。无论以何种模式启动，最终都会执行 ActivityStack 的 resumeTopActivityUncheckedLocked()方法。获取到了即将要启动的
+    Activity 所在的应用进程 由于根Activity 没有创建，先会回到 AMS。调用了 startProcessLocked() ,最终是调用 startProcess() 发送创建进程请
+    求， 这样 AMS 就把任务交给了Process。(可以看出来 根Activity所在应用进程没有创建，最终会走到创建Process这个流程中，如果普通Activity 已经
+    启动的话，进程肯定是有的，就不会走到startProcess() 方法中)
+
+    Process向Zygote进程发送创建应用进程请求    
+        上面叙述了最终通过 Process.start 方法来为应用创建进程。调用就是 ZygoteProcess 的 startViaZygote(),最终 Zygote 建立好 Socket 连
+        接后，接下来当然是发送请求，通过 zygoteSendArgsAndGetResult() 进行发送请求。在这个方法中将传入的应用进程的启动参数argsForZygote 写
+        入到 ZygoteState 。这样 AMS 就完成了向 Zygote 进程发送创建应用进程的请求的任务。
+</code></pre><h5 id="3、Zygote-进程接受请求并孵化应用进程：SystemServer-是孵化出来的子进程"><a href="#3、Zygote-进程接受请求并孵化应用进程：SystemServer-是孵化出来的子进程" class="headerlink" title="3、Zygote 进程接受请求并孵化应用进程：SystemServer 是孵化出来的子进程"></a>3、Zygote 进程接受请求并孵化应用进程：SystemServer 是孵化出来的子进程</h5><pre><code>上面已经说过 AMS 已经与 Zygote 进程建立 Socket 连接并发送了创建应用进程的请求，那么 Zygote 进程是在哪里收到请求，收到请求后又是怎么处理的？
+
+    Zygote 进程是在 ZygoteInit 的 main 方法中接受请求的，所以现在的入口就是 ZygoteInit 的 main 方法。(在 AndroidRuntime 中，通过 JNI 调用
+    ZygoteInit 的 main 函数)
+
+    与 Activity 启动息息相关的 AMS。最后会调用 ZygoteServer.runSelectLoop(abiList) 来使创建的 Socket 进入无限循环，等待 AMS 请求，因为
+    AMS 已经与 Zygote 已经建立连接了。在循环中收到请求后通过 forkAndSpecialize ()来创建应用进程,最终将创建应用进程的任务交给 
+    nativeForkAndSpecialize()
+
+    nativeForkAndSpecialize() 最终是通过 fork 当前进程来创建一个子进程，子进程也就是应用进程就被孵化出来了。(如今只是有了根Actiivity 所需要
+    的进程，最终使命是根Activity 的启动)
+
+    流程：    
+        ZygoteInit.main(反射获取ActivityThread)————ActivityThread.main()————MethodAndArgsCall.run(Method.Invoke 执行
+        ActivityThread.main)
+</code></pre><h5 id="4、应用进程启动-ActivityThread-ActivityThread在Android中它就代表了Android的主线程，但是并不是一个Thread类。"><a href="#4、应用进程启动-ActivityThread-ActivityThread在Android中它就代表了Android的主线程，但是并不是一个Thread类。" class="headerlink" title="4、应用进程启动 ActivityThread(ActivityThread在Android中它就代表了Android的主线程，但是并不是一个Thread类。"></a>4、应用进程启动 ActivityThread(ActivityThread在Android中它就代表了Android的主线程，但是并不是一个Thread类。</h5><pre><code>ActivityThread类是Android APP进程的初始类，它的main函数是这个APP进程的入口。
+
+ActivityThread用于管理应用程序的主线程执行的，而系统级服务 AMS 和应用程序的 ActivityThread 是属于不同进程的，因此他们两者之间的交互是需要
+用到 Binder 通信)    
+
+上面已经知道应用进程已经被创建，在 processOneCommand() 孵化出的应用进程中是有返回值的，在返回的方法中通过反射获取到 AMS 传递来的
+android.app.ActivityThread 类。
+
+通过 ActivityThread 的 main 方法来构造 MethodAndArgsCaller，在 MethodAndArgsCaller 中的 Run 中 invoke ActivityThread 的 main 方
+法。run 方法执行就是执行 ActivityThread 的 main 方法。(通过反射到的 ActivityThread main 方法来创建 MethodAndArgsCaller 对象，最终
+执行 MethodAndArgsCaller 中的 run 方法，间接执行 ActivityThread main 方法)
+
+那什么时候执行 run 方法？
+    上面有提到 ZygoteServer.runSelectLoop(abiList) 一直在等待消息，那是因为 MethodAndArgsCaller=null，当Caller创建好的时候，会自动
+    执行run方法，最终也就执行了ActivityThread 的 main 方法。于是应用进程成功启动 ActivityThread。
+</code></pre><h5 id="1、2、3、4-总结了从-Launcher-获得-AMS————创建应用所需要的进程-startProcess-———进程是由Zygote孵化而来———有了进程-SystemServer，通过进程启动-ActivityThread-最终需要的是根Activity的启动"><a href="#1、2、3、4-总结了从-Launcher-获得-AMS————创建应用所需要的进程-startProcess-———进程是由Zygote孵化而来———有了进程-SystemServer，通过进程启动-ActivityThread-最终需要的是根Activity的启动" class="headerlink" title="1、2、3、4 总结了从 Launcher 获得 AMS————创建应用所需要的进程(startProcess())———进程是由Zygote孵化而来———有了进程 SystemServer，通过进程启动 ActivityThread(最终需要的是根Activity的启动)"></a>1、2、3、4 总结了从 Launcher 获得 AMS————创建应用所需要的进程(startProcess())———进程是由Zygote孵化而来———有了进程 SystemServer，通过进程启动 ActivityThread(最终需要的是根Activity的启动)</h5><h5 id="5、应用进程绑定到AMS-ActivityThread-中的-ApplicationThread-绑定到-AMS-上面说到了为什么需要Binder进行通信，因为不是一个进程的"><a href="#5、应用进程绑定到AMS-ActivityThread-中的-ApplicationThread-绑定到-AMS-上面说到了为什么需要Binder进行通信，因为不是一个进程的" class="headerlink" title="5、应用进程绑定到AMS (ActivityThread 中的 ApplicationThread  绑定到 AMS,上面说到了为什么需要Binder进行通信，因为不是一个进程的)"></a>5、应用进程绑定到AMS (ActivityThread 中的 ApplicationThread  绑定到 AMS,上面说到了为什么需要Binder进行通信，因为不是一个进程的)</h5><pre><code>上面讲述了Launcher如何过渡到AMS，通过AMS发起创建process请求，最终通知Zygote孵化应用进程，启动 ActivityThread。
+
+应用进程已经启动，如何再跟AMS绑定。上面说到 当Zygote进程孵化出应用进程后，执行了 ActivityThread 的 main方法。这个main方法的料有点足：
+    1、 Looper.prepareMainLooper();     创建主线程的Looper以及MessageQueue
+
+    2、 ActivityThread thread = new ActivityThread();
+       thread.attach(false, startSeq);//AMS绑定ApplicationThread对象,即应用进程绑定到AMS     
+
+    3、 Looper.loop();                  开启主线程的消息循环    
+       涉及到Handler消息机制，可查看Handler消息机制 https://blog.csdn.net/qq_41979349/article/details/98107823    
+
+       重点说一下 attach(),中间出现了一个 
+            mgr.attachApplication(mAppThread, startSeq);————————————— AMS绑定 ApplicationThread 对象
+            1、IActivityManager mgr = ActivityManager.getService();
+            2、mAppThread=ApplicationThread，
+                通过调用AMS的 attachApplication 来将 ActivityThread 中的内部类 ApplicationThread 对象绑定至 AMS，这样 AMS 就可以通过
+                这个代理对象来控制应用进程。
+
+                将 ApplicationThread 绑定到 AMS 后，接着为这个进程添加垃圾回收观察者，每当系统触发垃圾回收的时候就在 run 方法中计算应用使用
+                了多大的内存，如果超过总量的3/4就尝试释放内存。
+
+                因为绑定 AMS 后，AMS 持有 ApplicationThread 对象，最终调用 ApplicationThread 的 bindApplication方法。
+
+                进入 bindApplication()看一下有什么有趣的内容，进入后发现 sendMessage(H.BIND_APPLICATION, data); 发送了一个绑定 
+                ApplicationThread 对象的消息。
+
+                bindApplication 主要就是 AMS 通过绑定的 ActivityThread 内部类 ApplicationThread，向 ActivityThread 的Handler,即
+                H 发送绑定的消息 。
+
+                熟悉的大 H (线程所需要的Handler，内部定义了一组消息类型，主要包括四大组件的启动和停止过程),接收到发送来的 BIND_APPLICATION 
+                请求后调用绑定方法 handleBindApplication(),在这个方法中，看到了熟悉的对象 mInstrumentation ，最终调用了
+                mInstrumentation.callApplicationOnCreate(app);进行启动 Application 的 onCreate()，(故 Application 的 onCreate 比 
+                ActivityThread 的 main 方法慢执行,会比所有该应用 Activity 的生命周期先调用，因为此时的 Activity 还没启动)，
+                mInstrumentation 就是在绑定 ApplicationThread 的时候创建的，
+
+                ActivityThread main()  &gt; Application onCreate()  &gt; Activity onCreate()     启动顺序优先排行
+</code></pre><h5 id="6、AMS发送启动Activity的请求"><a href="#6、AMS发送启动Activity的请求" class="headerlink" title="6、AMS发送启动Activity的请求"></a>6、AMS发送启动Activity的请求</h5><pre><code>上面讲过应用程序绑定到 AMS 上，AMS 通过绑定来的代理 ApplicationThread 进行进一步操作，创建Looper，发送Message，调用 Application 的
+oncreate()等操作。接下来需要启动 Activity。
+
+谁发送的启动请求？当然是老将 ActivityThread。上面提到过 thread.bindApplication(),还有另一个方法 
+mAtmInternal.attachApplication(app.getWindowProcessController()) 就是用来启动 Activity 的。
+
+AMS 通过绑定 ApplicationThread ，让代理的 ApplicationThread 启动了 sendMessage() 发送的 messge 启动了 Application 的oncreate()。
+进程绑定 AMS 是在 AMS 中通过代理 ApplicationThread 进行绑定的，启动 Activity 方法也是在 AMS 中进行启动的。绑定后就该启动了！！！！！！！！
+
+真正启动 Activity 的是 ActivityStackSupervisor 的 realStartActivityLocked(), 这个方法中主要做了设置生命周期的动作 
+clientTransaction.setLifecycleStateRequest(lifecycleItem);
+
+一步步走下来 通过父类发现：
+    AMS 将启动 Activity 的请求发送给了 ActivityThread 的 Handler。
+
+mAtmInternal.attachApplication(app.getWindowProcessController())——————    
+Service.getLifecycleManager().scheduleTransaction(clientTransaction);————————scheduleTransaction()的
+transaction.schedule();————mClient.scheduleTransaction(this);————在 ActivityThread 的父类ClientTransactionHandler 中找到了
+这个 scheduleTransaction 方法———— sendMessage(ActivityThread.H.EXECUTE_TRANSACTION, transaction);————
+最后 sendMessage() 交给 ActivityThread 来做具体实现，发送给了 ActivityThread 的 Handler 中。
+</code></pre><h5 id="7、ActivityThread的Handler处理启动Activity的请求"><a href="#7、ActivityThread的Handler处理启动Activity的请求" class="headerlink" title="7、ActivityThread的Handler处理启动Activity的请求"></a>7、ActivityThread的Handler处理启动Activity的请求</h5><pre><code>    上面叙述知道了 AMS 通过Handler 怎么进行启动 Activity 的，下面需要看一下怎么处理启动 Activity 请求的。上面知道发送了一个
+    EXECUTE_TRANSACTION 的 Message 请求。
+
+    在 ActivityThread 处理 Message 的 handleMessage() 中处理收到的请求， 在这个地方执行了 mTransactionExecutor.execute(transaction);
+    在 mTransactionExecutor 类中找到了 execute()：
+        1、executeCallbacks()这里面做了 Activity 的 onCreate() 启动。 有这么一个操作，ClientTransactionItem item = 
+          callbacks.get(i);————&gt;item.execute(mTransactionHandler)这个获取到的 ClientTransactionItem 是什么？
+
+        还记不记得上面提到的 启动 Activity 的方法 realStartActivityLocked(),里面执行了 Service.getLifecycleManager().scheduleTransac
+        tion(clientTransaction);  就是这个 clientTransaction，clientTransaction 什么时候被添加进去的？
+
+        在这个之前有一个 clientTransaction.addCallback(LaunchActivityItem.obtain(new Intent(r.intent),....)。
+        原来添加进去的是——————&gt;LaunchActivityItem！！！！！  那 get()到的 ClientTransactionItem 执行的 execute()方法，就是 
+        LaunchActivityItem 的 execute()方法。
+
+        发现了一个熟悉的方法 client.handleLaunchActivity(r, pendingActions, null); client 是什么？
+
+        上面有说 item.execute(mTransactionHandler) 传进来一个 mTransactionHandler，这个就是在 ActivityThread 中创建 
+        mTransactionExecutor 对象的时候，传进来的 this，也就是 ActivityThread 的父类，client==ActivityThread。
+
+        知道了 client=ActivityThread  那调用的方法也就是调用的 ActivityThread 的 handleLaunchActivity()。终于见到曙光了 
+        performLaunchActivity()这个方法启动了一个Activity。原来 Activity 启动的第一个操作是 performLaunchActivity()。里面做的事情有点多：
+
+            1、ActivityInfo  用于存储代码和AndroidManifes设置的Activity和receiver节点信息，比如Activity的theme和launchMode
+
+            2、ComponentName 获取要启动的Activity的ComponentName类，ComponentName类中保存了该Activity的包名和类名
+
+            3、ContextImpl 创建要启动Activity的上下文环境
+
+            4、Application 创建Application,makeApplication会调用Application的onCreate方法
+
+            5、activity.attach() 初始化Activity，创建Window对象（PhoneWindow）并实现Activity和Window相关联
+
+            6、设置主题
+
+            7、mInstrumentation.callActivityOnCreate() 启动活动
+
+            8、r.setState(ON_CREATE); 设置生命周期 ON_CREATE
+
+            又看见了熟悉的老哥 mInstrumentation ，但目前主要看一下启动活动 callActivityOnCreate()的步骤，里面执行了 activity.performCreate();在
+            这个方法中 调用Activity的onCreate，根Activity启动成功！！！！！！目前为止我们的进程启动，根Activitiy 也顺利进行了启动。
+            根Activity 就已经启动了，万里长征也应该结束了，但是身为万里长征的首席指挥官，总不能一结束就撒手不管吧。所以继续看看结束后的维护工作。
+
+        2、executeLifecycleState() 做了改变活动的生命周期状态。
+                上面的万里长征 根Activity 启动已经完成，接下来执行该方法。因为该控制生命周期了。上面提到过设置生命周期的操作，在 
+                ActivityLifecycleItem lifecycleItem = transaction.getLifecycleStateRequest(); 这个方法中，获取到的就是上 main 设置生命周期
+                的那个：lifecycleItem = ResumeActivityItem.obtain(dc.isNextTransitionForward()); 取出来的就是 ResumeActivityItem 。首次赋值
+                的是 ON_CREATE。
+
+                知道 start 为 ON_CREATE,finish 为 ON_DESTORY,那么如何知道 start 和 finish 的大小关系呢？
+                    ActivityLifecycleItem lifecycleItem = transaction.getLifecycleStateRequest();中就是生命周期的定义，发现原来是用 
+                    -1——7 数字来进行定义生命周期，最后比较大小。添加到一个集合中，最后根据集合中的生命周期进行执行。生命周期添加到集合中后，开始执行
+                    performLifecycleSequence(),通过 Handler 发送对应的 Message。比如 handleStartActivity、handleResumeActivity 这里的
+                    Handler 是 ActivityThread 中的。所以回调的方法也是 ActivityThread 中的 handleStartActivity、handleResumeActivity 等方法。
+                    最终调用的是 Activity 类中对应的生命周期方法。
+
+总结：
+    从Launcher获得代理AMS————&gt;交给代理AMS发送创建应用进程请求————&gt;Zygote进行孵化进程————&gt;通过孵化器出来的进程中run方法 执行ActivityThread 的 main 
+    方法来启动 ActivityThread————&gt;进程有了，然后与 AMS 进行绑定，拿到 ApplicationThread 代理——————&gt;AMS 通过代理发送启动 Activity 请求——————&gt;
+    ActivityThread 处理启动请求，最后根Activity 启动成功。
+
+    1. Launcher进程请求AMS
+    2. AMS发送创建应用进程请求
+    3. Zygote进程接受请求并孵化应用进程
+    4. 应用进程启动ActivityThread
+    5. 应用进程绑定到AMS
+    6. AMS发送启动Activity的请求
+    7. ActivityThread的Handler处理启动Activity的请求
+</code></pre><h5 id="详细总结："><a href="#详细总结：" class="headerlink" title="详细总结："></a>详细总结：</h5><pre><code>(1)：首先，系统刚刚启动的时候加载的是Linux内核，在Linux内核加载完成之后会创建出来一个init进程，启动init进程解析 init.rc 文件首先会fork出一个叫 
+     ServerManager 的子进程，该进程主要用于管理我们的系统服务，他内部存在一个server服务列表，这个列表中存储的就是那些已经注册的系统服务。
+
+    随后init进程会fork出一个 Zygote 的子进程，Zygote 进程是一个守护进程，之后，当我们的应用程序想要启动的时候，实际上是由 Zygote 来 fork 出子进程给我们
+    的应用程序的，这就保证了我们的应用程序运行在单独的子进程中，即使一个应用程序奔溃也不会影响另一个应用程序的执行；
+
+
+    总结：Android 系统会创建一个 ServerManager，管理手机上所有的进程。内部存在一个 Service 服务列表，就是注册进程的。随后 Zygote 用来 for 出一个进程给
+    我们的应用程序，也会注册到这个 ServiceManager 中，因为 Zygote fork 出的进程都会单独运行在各自的子进程中，所以手机中程序互都不影响。
+
+
+    (2)：现在开始创建我们的应用进程，在 Zygote 进程启动之后，会通过 ZygoteInit 的 main 方法 fork 出一个 SystemServer 子进程。
+
+        SystemServer 进程在启动的时候会创建 ActivityThread 对象以及系统上下文，(注意一点就是虽然ActivityThread 里面带有 Thread，但他仅仅是一个普通
+        的 final 类而已，并没有继承 Thread 或者实现 Runnable接口)
+
+        在 ActivityThread 里面存在一个内部类 ApplicationThread(虽然 ApplicationThread 里面带有 Thread，同样他也没有继承 Thread 或者实现
+        Runnable 接口，他实际上是一个Binder类)。
+
+        接着在 SystemServer 的 main 方法里面会创建 ServerThread 对象(同样虽然 ServerThread 里面带有 Thread，但他只是一个普通类)，并且调用他的 
+        initAndLoop 方法，在 initAndLoop 方法里面会初始化诸如 :ActivityManagerService 等一系列系统级 Service 对象，并且调用 ServerManager 的
+        addService 方法，将这些 Service 服务注册到 ServerManager 里面，同时启动这些服务。
+
+        到这里，系统进程的启动工作就结束了，之后，会开启系统Launcher程序来完成系统界面的加载与显示。(相当于这里只是自己进程创建的步骤。文档最上面讲到的，
+        第2、3、4步骤 其实是在手机系统创建的时候就已经准备好子进程了，所以才会有第1步骤的 Launcher 通过代理获取 AMS 对象)
+
+
+
+        总结：前面讲到过系统自己生成管理进程的系统服务：ServerManager。这一步骤就是讲怎么创建的子进程步骤，对子进程都做了些什么。
+
+            进程守护 Zygote 就是来创建我们自己的子进程的。当 Zygote 创建好后，会通过 Main 方法 fork 出一个 SystemServer 子进程。在这个子进程里会进
+            行创建 ActivityThread ，在 ActivityThread 中有一个 ApplicationThread ，这个是后来需要与 AMS 绑定的。这个 AMS 到底是从哪里来的？
+
+            刚才说了 fork 出我们一个 SystemServer 子进程，这个子进程还有一个操作就是创建 ServerThread，这个 ServerThread 类中就是进行了 AMS 等一些
+            服务的初始化，并且把这一系列的 service 对象添加到系统的 ServerManager 中进行启动。(文档的第1步骤就是通过代理从 ServerManager 中拿到的
+            AMS 对象，通过这个对象进行发送启动程序的命令)
+
+
+     (3)在我们点击应用程序的桌面图标的时候，App 就由 Launcher 开始启动了，Launcher 实际上是继承了 Activity 的，并且实现了点击、长点击等等监听器，在点击
+        桌面图标的时候，实际上执行的是 Launcher 的 onClick 方法，在 onClick 里面会执行我们 Activity 的 startActivitySafely 方法，因为 Launcher 是
+        继承自 Activity 的，所以它里面的大多数方法都会辗转到 Activity 中去执行的。
+
+         在 startActivitySafely 方法里面实际上执行的就是 startActivity 方法了，这个方法就是通常跳转 Activity 的时候调用的方法，这个方法里面会执行
+         startActivityForResult 方法，紧接着执行的是 Instrumentation 的 execStartActivity 方法，Instrumentation 可以认为是一个大管家，每个
+         Activity 都持有一个 Instrumentation 对象的一个引用，但是整个进程中是只有一个 Instrumentation 的，AMS 与 ActivityThread 之间诸如：
+         Activity 的创建、暂停等的交互工作实际上是由 Instrumentation 具体操作的(步骤5中讲了 AMS 绑定 ActivityThread 通过调用 AMS 的
+         attachApplication 来将 ActivityThread 中的内部类 ApplicationThread 对象绑定至AMS，这样 AMS 就可以通过这个代理对象 来控制应用进程。)。
+
+         在这里应该明白一点就是 ActivityManagerService 是属于系统级服务的，而 ActivityThread 是用于管理应用程序的主线程执行的，而系统级服务和应用程序
+         的 ActivityThread 是属于不同进程的，因此他们两者之间的交互是需要用到 Binder 通信的。
+
+         而 ActivityThread 工作的真正执行者是 Instrumentation，因此 Instrumentation 与 AMS 的交互是涉及到Binder通信的，也就是说 Instrumentation 
+         的 execStartActivity 实际上是通过 Binder 与 AMS 进行通信的，在 execStartActivity 里面通过获得 AMS 在客户端的代理 ActivityManagerProxy，
+         调用他的startActivity 方法，实际上最终执行到的就是 AMS 的 startActivity 方法(在文档的步骤1中讲到了，最终调用的是 AMS 的 startActivity，文
+         档步骤直接从1看到第6步，因为2、3、4、5步骤在前一个段落讲过了)。
+
+         在 AMS 的 startActivity 方法中实际上通过 ActivityStackSupervision 与 ActivityStack 来交互操作完成 Activity 启动的，最终会执行到 
+         ApplicationThread 的 scheduleLaunchActivity 方法来启动 Activity ，scheduleLaunchActivity 会通过 Handler 来发送创建 Activity 的消息
+         给主线程，也就是 ActivityThread，而 ActivityThread 在接收到，这个创建消息之后会调用他自己的 handleLaunchActivity 方法，这个方法会执行 
+         performLaunchActivity 方法，在 performLaunchActivity 方法里面就会通过 Instrumentation 通过反射来创建一个 Activity 对象出来了。(步骤6、7
+         讲了发送的 startActivity 请求，以及如何处理这个请求)
+
+         在创建完 Activity 之后就会调用 Instrumentation 的 callActivityOnCreate 方法来启动 Activity，callActivityOnCreate 实际上执行的是
+         Activity 的 onCreate 方法，进行一些必要的初始化操作。
+
+
+         总结：
+            在这一步骤中讲到了 Launcher 如何进行启动的 Activity 。提到了 Launcher 就是 Activity ，最后执行的是 startActivity()方法，在这个启动方法
+            中出现了 Instrumentation 这个管理 Activity 的生命周期的家伙，就是 AMS 绑定 ActivityThread 后，对 ActivityThread 的所有操作都是通过它
+            来完成。最终的启动是交给 AMS 进行操作的。AMS 将启动 Activity 的请求发送给了 ActivityThread 的 Handler。
+
+            在步骤7中，对这个 Message 的处理也做了详细说明，最终 Activity 进行启动。
+
+            ActivityThread main()  &gt; Application onCreate()  &gt; Activity onCreate()     启动顺序优先排行
+</code></pre>
+          <br>
+<p>Scribble</p>
+<p><img src='/images/scribble3.png' alt='scribble'></p>
+
+        </section>
+      </div>
+      
+      <div class='block'>
+  
+    <a class='main' href='/'>Bolg</a>
+  
+    <a class='main' href='/about'>About</a>
+  
+    <a class='main' href='mailto:saintwinkle@gmail.com'>Email</a>
+  
+    <a class='main' href='https://github.com/ZF-probe'>Github</a>
+  
+</div>
+
+    </div>
+    <footer>
+  <span class='muted'>&copy; John Doe. All Rights Reserved.</span><br>
+  <a href='https://github.com/saintwinkle/hexo-theme-scribble' class='muted'>built with Hexo using Scribble theme</a>
+  <br>
+  <br>
+  <img src='/images/scribble2.png' alt='scribble' />
+</footer>
+
+  </body>
+</html>
